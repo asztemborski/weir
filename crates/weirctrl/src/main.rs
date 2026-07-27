@@ -1,8 +1,11 @@
 use std::net::SocketAddr;
 
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tokio::net::TcpListener;
 
+use crate::startup::Application;
+
+mod pki;
 mod startup;
 
 #[derive(Debug, Parser)]
@@ -13,17 +16,25 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    Serve { addr: SocketAddr },
+    Serve {
+        #[arg(short, long, env = "WEIRCTRL_ADDR")]
+        addr: SocketAddr,
+
+        #[arg(short, long, env = "WEIRCTRL_NAME")]
+        mesh_name: String,
+    },
 }
 
 #[tokio::main]
-async fn main() {
-    let args = Args::parse();
+async fn main() -> Result<()> {
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)?;
 
+    let args = Args::parse();
     match args.command {
-        Command::Serve { addr } => {
-            let listener = TcpListener::bind(addr).await.unwrap();
-            startup::run_server(listener).await.unwrap();
+        Command::Serve { addr, mesh_name } => {
+            let app = Application::build(addr, &mesh_name).await?;
+            app.serve_https().await
         }
     }
 }
