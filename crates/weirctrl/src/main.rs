@@ -3,10 +3,11 @@ use std::net::SocketAddr;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::startup::Application;
+use crate::app::App;
 
+mod app;
 mod pki;
-mod startup;
+mod routes;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -20,8 +21,8 @@ pub enum Command {
         #[arg(short, long, env = "WEIRCTRL_ADDR")]
         addr: SocketAddr,
 
-        #[arg(short, long, env = "WEIRCTRL_NAME")]
-        mesh_name: String,
+        #[arg(short, long, env = "WEIRCTRL_SAN")]
+        san: String,
     },
 }
 
@@ -32,8 +33,8 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     match args.command {
-        Command::Serve { addr, mesh_name } => {
-            let app = Application::build(addr, &mesh_name).await?;
+        Command::Serve { addr, san } => {
+            let app = App::build(addr, &san).await?;
             app.serve_https().await
         }
     }

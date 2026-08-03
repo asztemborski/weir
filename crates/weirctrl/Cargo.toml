@@ -4,16 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+rcgen = { workspace = true }
+
 anyhow = "1.0.103"
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["http2", "macros"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
-hyper = { version = "1.11.0", features = ["full"] }
+hyper = { version = "1.11.0"  }
 hyper-util = "0.1.20"
-rcgen = { version = "0.14.8", features = ["x509-parser"] }
 rustls = "0.23.42"
 rustls-pki-types = "1.15.1"
 time = "0.3.54"
-tokio = { version = "1.52.3", features = ["full"] }
 tokio-rustls = "0.26.4"
 tower-service = "0.3.3"
 tracing = "0.1.44"

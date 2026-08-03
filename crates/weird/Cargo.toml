@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+rcgen = { workspace = true }
+
+reqwest = { version = "0.13.4", features = ["blocking", "json"] }
