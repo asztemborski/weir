@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -23,6 +23,9 @@ pub enum Command {
 
         #[arg(short, long, env = "WEIRCTRL_SAN")]
         san: String,
+
+        #[arg(short, long, env = "WEIRCTRL_CERT_DIR")]
+        cert_dir: PathBuf,
     },
 }
 
@@ -33,8 +36,12 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     match args.command {
-        Command::Serve { addr, san } => {
-            let app = App::build(addr, &san).await?;
+        Command::Serve {
+            addr,
+            san,
+            cert_dir,
+        } => {
+            let app = App::build(addr, &cert_dir, &san).await?;
             app.serve_https().await
         }
     }

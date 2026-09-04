@@ -1,8 +1,8 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
+use std::{net::SocketAddr, path::Path};
 
 use anyhow::Result;
-use axum::{Router, extract::Request, routing};
+use axum::{Router, extract::Request};
 use hyper::{body::Incoming, service};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
@@ -10,11 +10,7 @@ use hyper_util::{
 };
 use rustls::{RootCertStore, ServerConfig, server::WebPkiClientVerifier};
 use rustls_pki_types::PrivatePkcs8KeyDer;
-use tokio::{
-    fs::File,
-    io::AsyncWriteExt,
-    net::{TcpListener, TcpStream},
-};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
 
@@ -32,15 +28,12 @@ pub struct App {
 }
 
 impl App {
-    pub async fn build(addr: SocketAddr, san: &str) -> Result<Self> {
-        let ca = CertificateAuthority::init(san)?;
+    pub async fn build(addr: SocketAddr, cert_path: &Path, san: &str) -> Result<Self> {
+        let ca = CertificateAuthority::init(cert_path, san).await?;
         let (server_cert, server_key) = ca.issue_server_cert(san)?;
 
         let mut roots = RootCertStore::empty();
         roots.add(ca.ca_cert_der().clone())?;
-
-        let mut file = File::create("../ca.der").await?;
-        file.write_all(&ca.ca_cert_der()).await?;
 
         let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
             .allow_unauthenticated()
@@ -55,11 +48,12 @@ impl App {
 
         let acceptor = TlsAcceptor::from(Arc::new(tls_config));
         let listener = TcpListener::bind(addr).await?;
+        let app_context = AppContext { ca: Arc::new(ca) };
 
         Ok(Self {
             listener,
             acceptor,
-            router: build_router(ca),
+            router: routes::build_router(app_context),
         })
     }
 
@@ -98,13 +92,4 @@ async fn handle_connection(conn: TcpStream, acceptor: TlsAcceptor, app: Router) 
     {
         tracing::error!("connection error: {err}");
     }
-}
-
-fn build_router(ca: CertificateAuthority) -> Router {
-    let app_ctx = AppContext { ca: Arc::new(ca) };
-
-    Router::new()
-        .route("/healthz", routing::get(|| async { "ok" }))
-        .route("/enroll", routing::post(routes::enroll_handler))
-        .with_state(app_ctx)
 }

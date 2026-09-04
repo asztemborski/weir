@@ -1,82 +1,129 @@
+use std::path::Path;
+
 use anyhow::Result;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, CertificateSigningRequestParams,
-    CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
+    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose,
 };
-use rustls_pki_types::{CertificateDer, CertificateSigningRequestDer};
+use rustls_pki_types::{CertificateDer, CertificateSigningRequestDer, pem::PemObject};
 use time::{Duration, OffsetDateTime};
+use tokio::fs;
 
-#[derive(Debug, Clone, Copy)]
-enum Profile {
-    Ca,
-    Leaf,
-    Peer,
+const CLOCK_SKEW: Duration = Duration::hours(1);
+
+const END_ENTITY_EKU: &[ExtendedKeyUsagePurpose] = &[
+    ExtendedKeyUsagePurpose::ClientAuth,
+    ExtendedKeyUsagePurpose::ServerAuth,
+];
+
+#[derive(Debug, Clone)]
+struct Profile {
+    ttl: Duration,
+    is_ca: IsCa,
+    key_usages: &'static [KeyUsagePurpose],
+    extended_key_usages: &'static [ExtendedKeyUsagePurpose],
 }
 
 impl Profile {
-    fn apply(self, params: &mut CertificateParams) {
-        let now = OffsetDateTime::now_utc();
-        params.not_before = now - Duration::hours(1);
-        params.not_after = now + self.ttl();
+    const CA: Self = Self {
+        ttl: Duration::days(365 * 10),
+        is_ca: IsCa::Ca(BasicConstraints::Unconstrained),
+        key_usages: &[KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign],
+        extended_key_usages: &[],
+    };
 
-        match self {
-            Self::Ca => {
-                params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-                params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
-            }
-            Self::Leaf | Self::Peer => {
-                params.is_ca = IsCa::ExplicitNoCa;
-                params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
-                params.extended_key_usages = vec![
-                    ExtendedKeyUsagePurpose::ClientAuth,
-                    ExtendedKeyUsagePurpose::ServerAuth,
-                ];
-            }
-        }
+    const LEAF: Self = Self {
+        ttl: Duration::days(90),
+        ..Self::END_ENTITY
+    };
+
+    const PEER: Self = Self {
+        ttl: Duration::days(30),
+        ..Self::END_ENTITY
+    };
+
+    const END_ENTITY: Self = Self {
+        ttl: Duration::ZERO,
+        is_ca: IsCa::ExplicitNoCa,
+        key_usages: &[KeyUsagePurpose::DigitalSignature],
+        extended_key_usages: END_ENTITY_EKU,
+    };
+
+    fn apply(&self, params: &mut CertificateParams) {
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now - CLOCK_SKEW;
+        params.not_after = now + self.ttl;
+        params.is_ca = self.is_ca;
+        params.key_usages = self.key_usages.to_vec();
+        params.extended_key_usages = self.extended_key_usages.to_vec();
     }
 
-    const fn ttl(self) -> Duration {
-        match self {
-            Self::Ca => Duration::days(365 * 10),
-            Self::Leaf => Duration::days(90),
-            Self::Peer => Duration::days(30),
-        }
+    fn params(&self, sans: Vec<String>) -> Result<CertificateParams> {
+        let mut params = CertificateParams::new(sans)?;
+        self.apply(&mut params);
+        Ok(params)
     }
 }
 
 #[derive(Debug)]
 pub struct CertificateAuthority {
-    issuer: CertifiedIssuer<'static, KeyPair>,
+    der: CertificateDer<'static>,
+    issuer: Issuer<'static, KeyPair>,
 }
 
 impl CertificateAuthority {
-    pub fn init(mesh_name: &str) -> Result<Self> {
-        let key = KeyPair::generate()?;
-        let mut params = CertificateParams::new(vec![mesh_name.to_owned()])?;
-        Profile::Ca.apply(&mut params);
+    pub async fn init(cert_dir: &Path, san: &str) -> Result<Self> {
+        let cert_path = cert_dir.join("ca.pem");
+        let key_path = cert_dir.join("ca_key.pem");
 
-        Ok(Self {
-            issuer: CertifiedIssuer::self_signed(params, key)?,
-        })
+        if let Ok(ca) = Self::load(&cert_path, &key_path).await {
+            return Ok(ca);
+        }
+
+        Self::generate_and_save(&cert_path, &key_path, san).await
     }
 
     pub fn issue_server_cert(&self, san: &str) -> Result<(Certificate, KeyPair)> {
-        let leaf_key = KeyPair::generate()?;
-        let mut params = CertificateParams::new(vec![san.to_owned()])?;
-        Profile::Leaf.apply(&mut params);
-
-        Ok((params.signed_by(&leaf_key, &self.issuer)?, leaf_key))
+        let key = KeyPair::generate()?;
+        let params = Profile::LEAF.params(vec![san.to_string()])?;
+        let cert = params.signed_by(&key, &self.issuer)?;
+        Ok((cert, key))
     }
 
     pub fn issue_peer_csr(&self, csr_der: &CertificateSigningRequestDer) -> Result<Certificate> {
         let mut csr = CertificateSigningRequestParams::from_der(csr_der)?;
-        Profile::Peer.apply(&mut csr.params);
+        Profile::PEER.apply(&mut csr.params);
+        csr.signed_by(&self.issuer).map_err(Into::into)
+    }
 
-        Ok(csr.signed_by(&self.issuer)?)
+    async fn load(cert_path: &Path, key_path: &Path) -> Result<Self> {
+        let (cert_pem, key_pem) =
+            tokio::try_join!(fs::read_to_string(cert_path), fs::read_to_string(key_path))?;
+
+        let der = CertificateDer::from_pem_slice(cert_pem.as_bytes())?;
+        let issuer = Issuer::from_ca_cert_pem(&cert_pem, KeyPair::from_pem(&key_pem)?)?;
+
+        Ok(Self { der, issuer })
+    }
+
+    async fn generate_and_save(cert_path: &Path, key_path: &Path, san: &str) -> Result<Self> {
+        let params = Profile::CA.params(vec![san.to_string()])?;
+        let key_pair = KeyPair::generate()?;
+        let certificate = params.self_signed(&key_pair)?;
+
+        tokio::try_join!(
+            fs::write(cert_path, certificate.pem()),
+            fs::write(key_path, key_pair.serialize_pem())
+        )?;
+
+        Ok(Self {
+            der: certificate.der().clone(),
+            issuer: Issuer::new(params, key_pair),
+        })
     }
 
     #[must_use]
     pub fn ca_cert_der(&self) -> &CertificateDer<'static> {
-        self.issuer.der()
+        &self.der
     }
 }
