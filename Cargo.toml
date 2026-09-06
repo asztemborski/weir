@@ -6,3 +6,4 @@ members = ["crates/weirctrl", "crates/weird"]
 tokio = { version = "1.53.1", features = ["full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
+anyhow = "1.0.103"

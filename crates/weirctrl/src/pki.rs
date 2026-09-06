@@ -76,11 +76,10 @@ impl CertificateAuthority {
         let cert_path = cert_dir.join("ca.pem");
         let key_path = cert_dir.join("ca_key.pem");
 
-        if let Ok(ca) = Self::load(&cert_path, &key_path).await {
-            return Ok(ca);
+        match Self::load(&cert_path, &key_path).await {
+            Ok(ca) => Ok(ca),
+            Err(_) => Self::generate_and_save(&cert_path, &key_path, san).await,
         }
-
-        Self::generate_and_save(&cert_path, &key_path, san).await
     }
 
     pub fn issue_server_cert(&self, san: &str) -> Result<(Certificate, KeyPair)> {
@@ -94,6 +93,10 @@ impl CertificateAuthority {
         let mut csr = CertificateSigningRequestParams::from_der(csr_der)?;
         Profile::PEER.apply(&mut csr.params);
         csr.signed_by(&self.issuer).map_err(Into::into)
+    }
+
+    pub fn ca_cert_der(&self) -> &CertificateDer<'static> {
+        &self.der
     }
 
     async fn load(cert_path: &Path, key_path: &Path) -> Result<Self> {
@@ -120,10 +123,5 @@ impl CertificateAuthority {
             der: certificate.der().clone(),
             issuer: Issuer::new(params, key_pair),
         })
-    }
-
-    #[must_use]
-    pub fn ca_cert_der(&self) -> &CertificateDer<'static> {
-        &self.der
     }
 }

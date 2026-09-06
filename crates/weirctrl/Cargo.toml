@@ -7,8 +7,8 @@ edition = "2024"
 tokio = { workspace = true }
 serde = { workspace = true }
 rcgen = { workspace = true }
+anyhow = { workspace = true }
 
-anyhow = "1.0.103"
 axum = { version = "0.8.9", features = ["http2", "macros"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 hyper = { version = "1.11.0"  }
@@ -22,4 +22,4 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 utoipa-axum = "0.2.0"
 utoipa = "5.5.0"
-utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+utoipa-scalar = "0.3.0"

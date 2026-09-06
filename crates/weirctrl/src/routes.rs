@@ -3,13 +3,16 @@ mod enroll;
 use anyhow::Error;
 use axum::{
     Router,
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
+    routing,
 };
 use hyper::StatusCode;
 use utoipa_axum::{router::OpenApiRouter, routes};
-use utoipa_scalar::{Scalar, Servable};
+use utoipa_scalar::Scalar;
 
 use crate::app::AppContext;
+
+const SCALAR_HTML: &str = include_str!("../embeded/scalar.html");
 
 pub struct ResponseError(Error);
 
@@ -35,5 +38,6 @@ pub fn build_router(app_context: AppContext) -> Router {
         .with_state(app_context)
         .split_for_parts();
 
-    router.merge(Scalar::with_url("/docs", api))
+    let scalar = Scalar::new(api).custom_html(SCALAR_HTML);
+    router.route("/docs", routing::get(async move || Html(scalar.to_html())))
 }
