@@ -86,6 +86,7 @@ impl CertificateAuthority {
         let key = KeyPair::generate()?;
         let params = Profile::LEAF.params(vec![san.to_string()])?;
         let cert = params.signed_by(&key, &self.issuer)?;
+
         Ok((cert, key))
     }
 

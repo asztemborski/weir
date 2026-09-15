@@ -16,7 +16,7 @@ struct Args {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Command {
+enum Command {
     Serve {
         #[arg(short, long, env = "WEIRCTRL_ADDR")]
         addr: SocketAddr,
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
             san,
             cert_dir,
         } => {
-            let app = App::build(addr, &cert_dir, &san).await?;
+            let app = App::new(addr, &cert_dir, &san).await?;
             app.serve_https().await
         }
     }

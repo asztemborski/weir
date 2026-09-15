@@ -33,7 +33,7 @@ impl<E: Into<Error>> From<E> for ResponseError {
 }
 
 pub fn build_router(app_context: AppContext) -> Router {
-    let (router, api) = OpenApiRouter::new()
+    let (router, api) = OpenApiRouter::default()
         .routes(routes!(enroll::enroll_handler))
         .with_state(app_context)
         .split_for_parts();
