@@ -21,7 +21,7 @@ pub(super) async fn enroll_handler(
     Json(req): Json<EnrollRequest>,
 ) -> Result<Json<EnrollResponse>, ResponseError> {
     let csr_der = CertificateSigningRequestDer::from_pem_slice(req.csr.as_bytes())?;
-    let cert = ctx.ca.issue_peer_csr(&csr_der)?;
+    let cert = ctx.cert_auth.issue_peer_csr(&csr_der)?;
 
     Ok(Json(EnrollResponse { pem: cert.pem() }))
 }

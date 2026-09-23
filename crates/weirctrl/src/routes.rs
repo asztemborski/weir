@@ -1,5 +1,3 @@
-mod enroll;
-
 use anyhow::Error;
 use axum::{
     Router,
@@ -11,6 +9,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use utoipa_scalar::Scalar;
 
 use crate::app::AppContext;
+
+mod enroll;
 
 const SCALAR_HTML: &str = include_str!("../embeded/scalar.html");
 

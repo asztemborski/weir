@@ -1,11 +1,10 @@
-use std::path::Path;
-
 use anyhow::Result;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, CertificateSigningRequestParams,
     ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose,
 };
 use rustls_pki_types::{CertificateDer, CertificateSigningRequestDer, pem::PemObject};
+use std::path::Path;
 use time::{Duration, OffsetDateTime};
 use tokio::fs;
 
@@ -69,22 +68,55 @@ impl Profile {
 pub struct CertificateAuthority {
     der: CertificateDer<'static>,
     issuer: Issuer<'static, KeyPair>,
+    san: String,
 }
 
 impl CertificateAuthority {
-    pub async fn init(cert_dir: &Path, san: &str) -> Result<Self> {
-        let cert_path = cert_dir.join("ca.pem");
-        let key_path = cert_dir.join("ca_key.pem");
+    pub async fn from_cert_dir(cert_dir: &Path) -> Result<Self> {
+        let (cert_pem, key_pem, san) = tokio::try_join!(
+            fs::read_to_string(file_paths::cert(cert_dir)),
+            fs::read_to_string(file_paths::key(cert_dir)),
+            fs::read_to_string(file_paths::san(cert_dir)),
+        )?;
 
-        match Self::load(&cert_path, &key_path).await {
-            Ok(ca) => Ok(ca),
-            Err(_) => Self::generate_and_save(&cert_path, &key_path, san).await,
-        }
+        Self::from_pem(&cert_pem, &key_pem, san.trim())
     }
 
-    pub fn issue_server_cert(&self, san: &str) -> Result<(Certificate, KeyPair)> {
+    pub async fn generate_and_save(cert_dir: &Path, san: &str) -> Result<Self> {
+        fs::create_dir_all(cert_dir).await?;
+
+        let params = Profile::CA.params(vec![san.to_string()])?;
+        let key_pair = KeyPair::generate()?;
+        let cert = params.self_signed(&key_pair)?;
+
+        tokio::try_join!(
+            fs::write(file_paths::key(cert_dir), key_pair.serialize_pem()),
+            fs::write(file_paths::cert(cert_dir), cert.pem()),
+            fs::write(file_paths::san(cert_dir), san),
+        )?;
+
+        Ok(Self {
+            der: cert.der().clone(),
+            issuer: Issuer::new(params, key_pair),
+            san: san.to_string(),
+        })
+    }
+
+    fn from_pem(cert_pem: &str, key_pem: &str, san: &str) -> Result<Self> {
+        let der = CertificateDer::from_pem_slice(cert_pem.as_bytes())?;
+        let key = KeyPair::from_pem(key_pem)?;
+        let issuer = Issuer::from_ca_cert_pem(cert_pem, key)?;
+
+        Ok(Self {
+            der,
+            issuer,
+            san: san.to_string(),
+        })
+    }
+
+    pub fn issue_server_cert(&self) -> Result<(Certificate, KeyPair)> {
         let key = KeyPair::generate()?;
-        let params = Profile::LEAF.params(vec![san.to_string()])?;
+        let params = Profile::LEAF.params(vec![self.san.clone()])?;
         let cert = params.signed_by(&key, &self.issuer)?;
 
         Ok((cert, key))
@@ -99,30 +131,20 @@ impl CertificateAuthority {
     pub fn ca_cert_der(&self) -> &CertificateDer<'static> {
         &self.der
     }
+}
 
-    async fn load(cert_path: &Path, key_path: &Path) -> Result<Self> {
-        let (cert_pem, key_pem) =
-            tokio::try_join!(fs::read_to_string(cert_path), fs::read_to_string(key_path))?;
+mod file_paths {
+    use std::path::{Path, PathBuf};
 
-        let der = CertificateDer::from_pem_slice(cert_pem.as_bytes())?;
-        let issuer = Issuer::from_ca_cert_pem(&cert_pem, KeyPair::from_pem(&key_pem)?)?;
-
-        Ok(Self { der, issuer })
+    pub fn cert(cert_dir: &Path) -> PathBuf {
+        cert_dir.join("ca.pem")
     }
 
-    async fn generate_and_save(cert_path: &Path, key_path: &Path, san: &str) -> Result<Self> {
-        let params = Profile::CA.params(vec![san.to_string()])?;
-        let key_pair = KeyPair::generate()?;
-        let certificate = params.self_signed(&key_pair)?;
+    pub fn key(cert_dir: &Path) -> PathBuf {
+        cert_dir.join("ca_key.pem")
+    }
 
-        tokio::try_join!(
-            fs::write(cert_path, certificate.pem()),
-            fs::write(key_path, key_pair.serialize_pem())
-        )?;
-
-        Ok(Self {
-            der: certificate.der().clone(),
-            issuer: Issuer::new(params, key_pair),
-        })
+    pub fn san(cert_dir: &Path) -> PathBuf {
+        cert_dir.join("ca.san")
     }
 }
