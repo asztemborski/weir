@@ -4,7 +4,10 @@ use rcgen::{
     ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose,
 };
 use rustls_pki_types::{CertificateDer, CertificateSigningRequestDer, pem::PemObject};
-use std::path::Path;
+use std::{
+    ops::{Add, Sub},
+    path::Path,
+};
 use time::{Duration, OffsetDateTime};
 use tokio::fs;
 
@@ -50,8 +53,8 @@ impl Profile {
 
     fn apply(&self, params: &mut CertificateParams) {
         let now = OffsetDateTime::now_utc();
-        params.not_before = now - CLOCK_SKEW;
-        params.not_after = now + self.ttl;
+        params.not_before = now.sub(CLOCK_SKEW);
+        params.not_after = now.add(self.ttl);
         params.is_ca = self.is_ca;
         params.key_usages = self.key_usages.to_vec();
         params.extended_key_usages = self.extended_key_usages.to_vec();
@@ -128,7 +131,7 @@ impl CertificateAuthority {
         csr.signed_by(&self.issuer).map_err(Into::into)
     }
 
-    pub fn ca_cert_der(&self) -> &CertificateDer<'static> {
+    pub const fn ca_cert_der(&self) -> &CertificateDer<'static> {
         &self.der
     }
 }

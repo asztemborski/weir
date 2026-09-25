@@ -38,10 +38,10 @@ enum Command {
 }
 
 async fn wait_for_shutdown_signal(cancellation_token: CancellationToken) {
-    signal::ctrl_c()
-        .await
-        .expect("failed to install ctrl-c handler");
-
+    if let Err(err) = signal::ctrl_c().await {
+        tracing::warn!(warning = "failed to listen for ctrl_c signal", %err);
+        return;
+    }
     cancellation_token.cancel();
 }
 

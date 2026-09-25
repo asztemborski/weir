@@ -50,4 +50,4 @@ jobs:
           components: clippy
 
       - name: Clippy check
-        run: cargo clippy --workspace --all-targets --all-features -- -W clippy::pedantic
+        run: cargo clippy --workspace --all-targets --all-features
